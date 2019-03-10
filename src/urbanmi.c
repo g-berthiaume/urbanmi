@@ -26,22 +26,22 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 /* Brainfuck language specific definition */
-#define PROGRAM_MEMORY_MAX_SIZE 30000
+#define PROGRAM_DATA_MEMORY_MAX_SIZE 30000
 
 /* Program status */
 typedef enum
 {
     UMI_OK = 0,
-    UMI_INVALID_ARG,
-    UMI_INVALID_FILE_OPEN,
-    UMI_INVALID_FILE_READ,
-    UMI_MEMORY_ALLOC_ERR,
-    // UMI_OUT_OF_PROGRAM_MEMORY,
-    // UMI_PROGRAM_ERROR_MEM_OVERFLOW,
-    // UMI_PROGRAM_ERROR_MEM_UNDERFLOW,
-
+    UMI_ERROR_ARGS_INVALID,
+    UMI_ERROR_FILE_OPEN,
+    UMI_ERROR_FILE_READ,
+    UMI_ERROR_MEMORY_ALLOC,
+    UMI_ERROR_DATA_MEMORY_BUSTED_UPPERBOUND,
+    UMI_ERROR_DATA_MEMORY_BUSTED_LOWERBOUND,
+    UMI_ERROR_DATA_MEMORY_ROLLOVER,
 } umi_status;
 
 /* Program memory */
@@ -53,6 +53,7 @@ struct program_memory
 
 /* Function prototypes */
 umi_status load_program(const char *fileName, struct program_memory *programMemory);
+void free_program(struct program_memory *programMemory);
 size_t get_file_size(FILE *fp);
 
 /* Program */
@@ -62,7 +63,7 @@ int main(int argc, char const *argv[])
     if (argc < 2)
     {
         fprintf(stderr, "Invalid usage.\nPlease use the command:­`%s yourfilename.bf`.\n", argv[0]);
-        return UMI_INVALID_ARG;
+        return UMI_ERROR_ARGS_INVALID;
     }
 
     struct program_memory programMemory = {0};
@@ -72,67 +73,71 @@ int main(int argc, char const *argv[])
         return status;
     }
 
-    char appMemory[PROGRAM_MEMORY_MAX_SIZE] = {0};
-    char *pAppMemory = appMemory;
+    char dataMemory[PROGRAM_DATA_MEMORY_MAX_SIZE] = {0};
+    char *pDataMemory = dataMemory;
 
+    /// Interpret the program
     char *cursor = programMemory.program;
     while (*cursor)
     {
+        bool isLoopTerminated;
         char operator= *cursor;
         switch (operator)
         {
         case '>':
-            pAppMemory++;
+            pDataMemory++;
             break;
         case '<':
-            pAppMemory--;
+            pDataMemory--;
             break;
         case '+':
-            (*pAppMemory)++;
+            (*pDataMemory)++;
             break;
         case '-':
-            (*pAppMemory)--;
+            (*pDataMemory)--;
             break;
         case '.':
-            putchar(*pAppMemory);
+            putchar(*pDataMemory);
             break;
         case ',':
-            *pAppMemory = getchar();
+            *pDataMemory = getchar();
             break;
         case '[':
-            if (*pAppMemory == 0)
+            isLoopTerminated = (*pDataMemory == 0);
+            if (isLoopTerminated)
             {
                 /// Dont enter the loop -> go to the matching bracket
-                uint16_t level = 1;
-                while (level != 0)
+                uint16_t loopLevel = 1;
+                while (loopLevel != 0)
                 {
                     ++cursor; ///< Next operator
                     if (*cursor == '[')
                     {
-                        level++;
+                        loopLevel++;
                     }
                     if (*cursor == ']')
                     {
-                        level--;
+                        loopLevel--;
                     }
                 }
             }
             break;
         case ']':
-            if (*pAppMemory != 0)
+            isLoopTerminated = (*pDataMemory == 0);
+            if (false == isLoopTerminated)
             {
                 /// loop is not finished -> go to the matching bracket
-                uint16_t level = 1;
-                while (level != 0)
+                uint16_t loopLevel = 1;
+                while (loopLevel != 0)
                 {
                     cursor--; ///< Previous operator
                     if (*cursor == '[')
                     {
-                        level--;
+                        loopLevel--;
                     }
                     if (*cursor == ']')
                     {
-                        level++;
+                        loopLevel++;
                     }
                 }
             }
@@ -140,8 +145,9 @@ int main(int argc, char const *argv[])
         default:
             break; ///< All other characters are ignored.
         }
-        cursor++; //TODO: Better than this
+        cursor++; ///< Next operator
     }
+    free_program(&programMemory);
     return UMI_OK;
 }
 
@@ -152,7 +158,7 @@ umi_status load_program(const char *fileName, struct program_memory *programMemo
     if (fp == NULL)
     {
         fprintf(stderr, "Can't open `%s` file.\n", fileName);
-        return UMI_INVALID_FILE_OPEN;
+        return UMI_ERROR_FILE_OPEN;
     }
 
     programMemory->programSize = get_file_size(fp);
@@ -161,16 +167,19 @@ umi_status load_program(const char *fileName, struct program_memory *programMemo
     if (programMemory->program == NULL)
     {
         fprintf(stderr, "Memory allocation error.\n");
-        return UMI_MEMORY_ALLOC_ERR;
+        return UMI_ERROR_MEMORY_ALLOC;
     }
 
-    size_t readSize = fread(programMemory->program, sizeof(char), programMemory->programSize, fp);
+    size_t readSize = fread(programMemory->program,
+                            sizeof(char),
+                            programMemory->programSize,
+                            fp);
     if (readSize != programMemory->programSize)
     {
         free(programMemory->program);
         fclose(fp);
         fprintf(stderr, "Error while reading file.\n");
-        return UMI_INVALID_FILE_READ;
+        return UMI_ERROR_FILE_READ;
     }
     fclose(fp);
     return UMI_OK;
@@ -182,4 +191,11 @@ size_t get_file_size(FILE *fp)
     size_t size = ftell(fp);
     rewind(fp);
     return size;
+}
+
+void free_program(struct program_memory *programMemory)
+{
+    free(programMemory->program);
+    programMemory->program = NULL;
+    programMemory->programSize = 0;
 }
