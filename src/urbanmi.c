@@ -27,9 +27,14 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <limits.h>
 
 /* Brainfuck language specific definition */
 #define PROGRAM_DATA_MEMORY_MAX_SIZE 30000
+typedef int cell_t;
+#define CELL_MAX INT_MAX
+#define CELL_MIN INT_MIN
 
 /* Program status */
 typedef enum
@@ -50,6 +55,9 @@ struct program_memory
     char *program;      ///< Pointers to program string extracted from input file.
     size_t programSize; ///< The program string size (number of char).
 };
+
+/*Macros*/
+#define get_index_from_array(arrayPtr, array) ((arrayPtr) - (array))
 
 /* Function prototypes */
 umi_status load_program(const char *fileName, struct program_memory *programMemory);
@@ -73,27 +81,50 @@ int main(int argc, char const *argv[])
         return status;
     }
 
-    char dataMemory[PROGRAM_DATA_MEMORY_MAX_SIZE] = {0};
-    char *pDataMemory = dataMemory;
+    cell_t dataMemory[PROGRAM_DATA_MEMORY_MAX_SIZE] = {0};
+    cell_t *pDataMemory = dataMemory;
 
     /// Interpret the program
     char *cursor = programMemory.program;
     while (*cursor)
     {
         bool isLoopTerminated;
+        ptrdiff_t currentIndex;
         char operator= *cursor;
         switch (operator)
         {
         case '>':
+            currentIndex = get_index_from_array(pDataMemory, dataMemory);
+            if (currentIndex >= PROGRAM_DATA_MEMORY_MAX_SIZE)
+            {
+                fprintf(stderr, "Invalid Program Error: PROGRAM_DATA_MEMORY_MAX_SIZE\n");
+                return UMI_ERROR_DATA_MEMORY_BUSTED_UPPERBOUND;
+            }
             pDataMemory++;
             break;
         case '<':
+            currentIndex = get_index_from_array(pDataMemory, dataMemory);
+            if (currentIndex <= 0)
+            {
+                fprintf(stderr, "Invalid Program Error: UMI_ERROR_DATA_MEMORY_BUSTED_LOWERBOUND\n");
+                return UMI_ERROR_DATA_MEMORY_BUSTED_LOWERBOUND;
+            }
             pDataMemory--;
             break;
         case '+':
+            if (*pDataMemory >= CELL_MAX)
+            {
+                fprintf(stderr, "Invalid Program Error: UMI_ERROR_DATA_MEMORY_ROLLOVER\n");
+                return UMI_ERROR_DATA_MEMORY_ROLLOVER;
+            }
             (*pDataMemory)++;
             break;
         case '-':
+            if (*pDataMemory <= CELL_MIN)
+            {
+                fprintf(stderr, "Invalid Program Error: UMI_ERROR_DATA_MEMORY_ROLLOVER\n");
+                return UMI_ERROR_DATA_MEMORY_ROLLOVER;
+            }
             (*pDataMemory)--;
             break;
         case '.':
@@ -108,14 +139,14 @@ int main(int argc, char const *argv[])
             {
                 /// Dont enter the loop -> go to the matching bracket
                 uint16_t loopLevel = 1;
-                while (loopLevel != 0)
+                while ((loopLevel != 0) && (*cursor))
                 {
                     ++cursor; ///< Next operator
                     if (*cursor == '[')
                     {
                         loopLevel++;
                     }
-                    if (*cursor == ']')
+                    else if (*cursor == ']')
                     {
                         loopLevel--;
                     }
@@ -128,14 +159,14 @@ int main(int argc, char const *argv[])
             {
                 /// loop is not finished -> go to the matching bracket
                 uint16_t loopLevel = 1;
-                while (loopLevel != 0)
+                while ((loopLevel != 0) && (*cursor))
                 {
                     cursor--; ///< Previous operator
                     if (*cursor == '[')
                     {
                         loopLevel--;
                     }
-                    if (*cursor == ']')
+                    else if (*cursor == ']')
                     {
                         loopLevel++;
                     }
